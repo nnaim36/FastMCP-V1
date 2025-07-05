@@ -5,7 +5,11 @@ from bs4 import BeautifulSoup
 import itertools
 import re
 
-mcp = FastMCP()
+mcp = FastMCP(
+    name="Resturant-Search"
+    host="127.0.0.1",
+    port=8003
+)
 
 def price_parse(_text:str)->float:
     match = re.search(r'\$?(\d+\.\d{2})', _text)

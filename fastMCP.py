@@ -2,27 +2,18 @@ from fastapi import FastAPI
 from fastmcp import FastMCP
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import time
+import uvicorn
 import requests
 import os
 
-mcp = FastMCP()
+mcp = FastMCP(
+    name="Local-Time",
+    host="127.0.0.1",
+    port=8001
+)
 
 @mcp.tool
-def add(a: int, b: int) -> int:
-    """Adds two integer numbers together."""
-    return a + b
-
-@mcp.resource("resource://config")
-def get_config() -> dict:
-    """Provides the application's configuration."""
-    return {"version": "1.0", "author": "MyTeam"}
-
-@mcp.resource("greetings://{name}")
-def personalized_greeting(name: str) -> str:
-    """Generates a personalized greeting for the given name."""
-    return f"Hello, {name}! Welcome to the MCP server."
-
-@mcp.get("/get-local-time")
 def get_local_time(timezone: str = "UTC") -> str:
     """
     Return the current time for the time zone tha the user is in
@@ -36,9 +27,5 @@ def get_local_time(timezone: str = "UTC") -> str:
         return now.isoformat() + "z"
 
 
-@mcp.get("get-location")
-def getlocation()->str:
-    """
-    receive the users location.
-    """
-    return "we have not figure this one out yet."
+if __name__ == "__main__":
+    mcp.run()

@@ -4,12 +4,26 @@ import requests
 from bs4 import BeautifulSoup
 import itertools
 import re
+import os
+import requests
 
 mcp = FastMCP(
     name="Resturant-Search"
     host="127.0.0.1",
     port=8003
 )
+
+googleMapsAPIKey=os.environ("GOOGLE_MAPS_API_KEYS")
+
+def calc_resturant_distance(user_lat,user_lon,rest_lat,rest_lon):
+
+
+
+    response = request.get(url)
+    data = response.json()
+    try:
+        return data["rows"][0]["elements"][0]["distance"]["text"]                                                                                                                                                                                                          
+
 
 def price_parse(_text:str)->float:
     match = re.search(r'\$?(\d+\.\d{2})', _text)

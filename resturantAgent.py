@@ -16,13 +16,20 @@ mcp = FastMCP(
 googleMapsAPIKey=os.environ("GOOGLE_MAPS_API_KEYS")
 
 def calc_resturant_distance(user_lat,user_lon,rest_lat,rest_lon):
+    origin = f"{user_lat},{user_lon}"
+    destination = f"{rest_lat},{rest_lon}"
+    url = (
+        f"https://maps.googleapis.com/maps/api/distancematrix/json?"
+        f"origins={origin}&destinations={destination}&mode=walking"
+        f"&units=imperial&key={googleMapsAPIKey}"
+    )
 
-
-
-    response = request.get(url)
+    response = requestS.get(url)
     data = response.json()
     try:
-        return data["rows"][0]["elements"][0]["distance"]["text"]                                                                                                                                                                                                          
+        return data["rows"][0]["elements"][0]["distance"]["text"]
+    except:
+        return "trouble calculating distance"                                                                                                                                                                                                          
 
 
 def price_parse(_text:str)->float:

@@ -79,16 +79,21 @@ def find_local_resturants_google(lat: float, lon: float, radius: int = 1000) -> 
         #print("[DEBUG] JSON:", response.json())
         response.raise_for_status()
         results = response.json().get("results", [])
-        return [
-            {
+        restaurants = []
+        for r in results[:10]:  # limit to first 10 to stay under quota
+            place_id = r.get("place_id")
+            website = fetch_place_website(place_id, googleMapsAPIKey) if place_id else None
+
+            restaurants.append({
                 "name": r.get("name"),
                 "address": r.get("vicinity"),
                 "rating": r.get("rating"),
                 "location": r.get("geometry", {}).get("location"),
-                "place_id": r.get("place_id")
-            }
-            for r in results
-        ]
+                "place_id": place_id,
+                "website": website
+            })
+
+        return restaurants
 
     except Exception as e:
         print(f"[ERROR] Google Maps API: {e}")

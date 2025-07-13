@@ -60,11 +60,10 @@ def fetch_place_website(place_id: str, api_key: str) -> str:
 
 
 @mcp.tool
-def find_local_resturants_google(lat: float, lon: float, radius: int = 1000) -> list:
+def find_local_resturants_google(lat: float, lon: float, radius: int = 1000, budget: int = 17) -> list:
     """
-    Find restaurants near a location using google maps legacy API using lat and lon
+    Find restaurants near a location, include walking distance and budget-friendly menu options
     """
-
     url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
     params = {
         "location": f"{lat},{lon}",
@@ -75,25 +74,54 @@ def find_local_resturants_google(lat: float, lon: float, radius: int = 1000) -> 
 
     try:
         response = requests.get(url, params=params)
-        #print("[DEBUG] Status:", response.status_code)
-        #print("[DEBUG] JSON:", response.json())
         response.raise_for_status()
         results = response.json().get("results", [])
-        restaurants = []
-        for r in results[:10]:  # limit to first 10 to stay under quota
+
+        enriched = []
+
+        for r in results[:10]:  # limit to first 10
             place_id = r.get("place_id")
+            location = r.get("geometry", {}).get("location", {})
             website = fetch_place_website(place_id, googleMapsAPIKey) if place_id else None
 
-            restaurants.append({
+            # Skip if no location
+            if not location:
+                continue
+
+            distance = calc_resturant_distance(lat, lon, location["lat"], location["lng"])
+
+            menu_data = {
+                "menu_items": [],
+                "best_combinations": []
+            }
+
+            raw_loc_str = r.get("vicinity", "")
+            location_name = raw_loc_str.split(",")[-1].strip() if "," in raw_loc_str else raw_loc_str.strip()
+
+            if website:
+                try:
+                    # Call the external MenuScraperAgent
+                    resp = requests.post(
+                        "http://127.0.0.1:8004/tools/scrape_menu",  # <- adjust if on another host
+                        json={"homepages": [website], "budget": budget},
+                        timeout=20
+                    )
+                    if resp.status_code == 200:
+                        menu_data = resp.json()
+                except Exception as e:
+                    print(f"[ERROR] Failed to get menu for {website}: {e}")
+
+            enriched.append({
                 "name": r.get("name"),
                 "address": r.get("vicinity"),
                 "rating": r.get("rating"),
-                "location": r.get("geometry", {}).get("location"),
-                "place_id": place_id,
-                "website": website
+                "distance": distance,
+                "website": website,
+                "menu_items": menu_data["menu_items"],
+                "best_combinations": menu_data["best_combinations"]
             })
 
-        return restaurants
+        return enriched
 
     except Exception as e:
         print(f"[ERROR] Google Maps API: {e}")
@@ -102,6 +130,7 @@ def find_local_resturants_google(lat: float, lon: float, radius: int = 1000) -> 
     #a = ["test4", "test5"]
     #return a
 
+'''
 @mcp.tool
 def scrape_menu(_urlsList:list, _budget:int) -> dict:
     """
@@ -138,7 +167,7 @@ def scrape_menu(_urlsList:list, _budget:int) -> dict:
         "menu_items": menuItems,
         "best_combinations": combos[:10]
     }
-
+'''
 
 if __name__ == "__main__":
     mcp.run()

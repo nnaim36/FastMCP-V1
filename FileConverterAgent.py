@@ -16,22 +16,21 @@ WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH")
 config = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
 
 @mcp.tool
-def generate_pdf_from_html(html_code: str, output_filename: str) -> str:
+def html_code_to_pdf(html_code: str, output_filename: str = "menu.pdf") -> str:
     """
-    Converts given HTML code to PDF and saves it locally.
-
-    Args:
-        html_code: The raw HTML string.
-        output_filename: Desired name of the output PDF (e.g., 'menu.pdf').
-
-    Returns:
-        A message indicating success or failure.
+    Converts raw HTML code to a PDF and returns the full file path.
     """
     try:
+
+        # Generate PDF
         pdfkit.from_string(html_code, output_filename, configuration=config)
-        return f"PDF generated successfully: {output_filename}"
+
+        # Get full absolute path
+        full_path = os.path.abspath(output_filename)
+
+        return full_path
     except Exception as e:
-        return f"Failed to generate PDF: {str(e)}"
+        return f"Error: {str(e)}"
 
 if __name__ == "__main__":
     mcp.run()

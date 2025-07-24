@@ -1,14 +1,9 @@
-from fastapi import FastAPI
+from datetime import datetime, timedelta
+import requests
 from fastmcp import FastMCP
-import requests
-from bs4 import BeautifulSoup
-import itertools
-import re
 import os
-import requests
-from urllib.parse import unquote, urlparse, parse_qs
+import re
 from dotenv import load_dotenv
-
 
 load_dotenv()
 
@@ -18,10 +13,9 @@ mcp = FastMCP(
     port=8003
 )
 
-SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 googleMapsAPIKey = os.getenv("GOOGLE_MAPS_API_KEY")
 
-def calc_resturant_distance(user_lat,user_lon,rest_lat,rest_lon):
+def calc_resturant_distance(user_lat, user_lon, rest_lat, rest_lon):
     origin = f"{user_lat},{user_lon}"
     destination = f"{rest_lat},{rest_lon}"
     url = (
@@ -29,18 +23,12 @@ def calc_resturant_distance(user_lat,user_lon,rest_lat,rest_lon):
         f"origins={origin}&destinations={destination}&mode=walking"
         f"&units=imperial&key={googleMapsAPIKey}"
     )
-
     try:
         response = requests.get(url)
         data = response.json()
         return data["rows"][0]["elements"][0]["distance"]["text"]
     except:
-        return "trouble calculating distance"                                                                                                                                                                                                          
-
-
-def price_parse(_text:str)->float:
-    match = re.search(r'\$?(\d+\.\d{2})', _text)
-    return float(match.group(1)) if match else None
+        return "unknown"
 
 def fetch_place_website(place_id: str, api_key: str) -> str:
     url = "https://maps.googleapis.com/maps/api/place/details/json"
@@ -51,21 +39,41 @@ def fetch_place_website(place_id: str, api_key: str) -> str:
     }
     try:
         response = requests.get(url, params=params)
-        response.raise_for_status()
-        result = response.json().get("result", {})
-        return result.get("website")
-    except Exception as e:
-        print(f"[ERROR] Failed to fetch website for {place_id}: {e}")
+        return response.json().get("result", {}).get("website")
+    except:
         return None
 
-
 @mcp.tool
-def find_local_resturants_google(lat: float, lon: float, radius: int = 1000, budget: int = 17) -> list:
+def find_local_resturants_google(lat: float, lon: float, radius: int = 1000, budget: int = 17, location: str = "") -> list:
     """
-    Find restaurants near a location, include walking distance and budget-friendly menu options
+    Checks DB for fresh restaurant data, else fetches new results from Google Maps and stores them.
     """
-    url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-    params = {
+
+    # Step 1: Query Database Agent for existing data
+    try:
+        db_response = requests.post(
+            "http://127.0.0.1:8004/tools/get_restaurants",
+            json={"location": location},
+            timeout=10
+        )
+        print(f"[INFO] Stored restaurant data to DB: {store_response.text}")
+        print("[DEBUG] DB POST Status:", store_response.status_code)
+        print("[DEBUG] DB Response Body:", store_response.text)
+        if db_response.status_code == 200:
+            db_data = db_response.json()
+            if db_data:
+                last_updated_str = db_data[0].get("menu_last_updated")
+                if last_updated_str:
+                    last_updated = datetime.fromisoformat(last_updated_str.replace("Z", ""))
+                    if datetime.utcnow() - last_updated < timedelta(days=60):
+                        print("[INFO] Returning cached restaurant data")
+                        return db_data
+    except Exception as e:
+        print(f"[WARN] Failed DB fetch: {e}")
+
+    # Step 2: Perform new search
+    maps_url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+    maps_params = {
         "location": f"{lat},{lon}",
         "radius": radius,
         "type": "restaurant",
@@ -73,43 +81,33 @@ def find_local_resturants_google(lat: float, lon: float, radius: int = 1000, bud
     }
 
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(maps_url, params=maps_params)
         response.raise_for_status()
         results = response.json().get("results", [])
-
         enriched = []
 
-        for r in results[:10]:  # limit to first 10
+        for r in results[:10]:
             place_id = r.get("place_id")
-            location = r.get("geometry", {}).get("location", {})
+            geo = r.get("geometry", {}).get("location", {})
             website = fetch_place_website(place_id, googleMapsAPIKey) if place_id else None
-
-            # Skip if no location
-            if not location:
+            if not geo:
                 continue
 
-            distance = calc_resturant_distance(lat, lon, location["lat"], location["lng"])
+            distance = calc_resturant_distance(lat, lon, geo["lat"], geo["lng"])
+            location_name = r.get("vicinity", "").split(",")[-1].strip()
 
-            menu_data = {
-                "menu_items": [],
-                "best_combinations": []
-            }
-
-            raw_loc_str = r.get("vicinity", "")
-            location_name = raw_loc_str.split(",")[-1].strip() if "," in raw_loc_str else raw_loc_str.strip()
-
+            menu_data = {"menu_items": [], "best_combinations": []}
             if website:
                 try:
-                    # Call the external MenuScraperAgent
-                    resp = requests.post(
+                    menu_resp = requests.post(
                         "http://127.0.0.1:8004/tools/scrape_menu",  # <- adjust if on another host
                         json={"homepages": [website], "budget": budget},
                         timeout=20
                     )
-                    if resp.status_code == 200:
-                        menu_data = resp.json()
+                    if menu_resp.status_code == 200:
+                        menu_data = menu_resp.json()
                 except Exception as e:
-                    print(f"[ERROR] Failed to get menu for {website}: {e}")
+                    print(f"[ERROR] Menu scrape failed: {e}")
 
             enriched.append({
                 "name": r.get("name"),
@@ -117,14 +115,29 @@ def find_local_resturants_google(lat: float, lon: float, radius: int = 1000, bud
                 "rating": r.get("rating"),
                 "distance": distance,
                 "website": website,
-                "menu_items": menu_data["menu_items"],
-                "best_combinations": menu_data["best_combinations"]
+                "menu_last_updated": datetime.utcnow().isoformat() + "Z"
             })
+
+        # Step 3: Store new data to Database Agent
+        try:
+            store_payload = {
+                "location": location,
+                "user_location": {"lat": lat, "lon": lon},
+                "restaurants": enriched
+            }
+            store_response = requests.post(
+                "http://127.0.0.1:8004/tools/store_restaurants",
+                json=store_payload,
+                timeout=10
+            )
+            print(f"[INFO] Stored restaurant data to DB: {store_response.text}")
+        except Exception as e:
+            print(f"[ERROR] Failed to store restaurant data: {e}")
 
         return enriched
 
     except Exception as e:
-        print(f"[ERROR] Google Maps API: {e}")
+        print(f"[ERROR] Google Maps API failed: {e}")
         return []
 
     #a = ["test4", "test5"]
@@ -169,5 +182,18 @@ def scrape_menu(_urlsList:list, _budget:int) -> dict:
     }
 '''
 
+
 if __name__ == "__main__":
     mcp.run()
+
+'''
+if __name__ == "__main__":
+    result = find_local_resturants_google(
+        lat=42.4184,
+        lon=-71.1097,
+        radius=1000,
+        budget=17,
+        location="66 Bow Street, Medford, MA"
+    )
+    print("[RESULT]", result)
+'''

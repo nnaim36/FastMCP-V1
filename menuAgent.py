@@ -113,7 +113,7 @@ def scrape_square_menu(url: str, budget: int, location_name: str ) -> list:
 
 # === MCP Tool ===
 @mcp.tool
-def scrape_menu(homepages: list, budget: int,location_name: str = "") -> dict:
+def scrape_menu(homepages: list, budget: int,location_name: str ) -> dict:
     all_items = []
     for homepage in homepages:
         print(f"[INFO] Searching: {homepage}")
